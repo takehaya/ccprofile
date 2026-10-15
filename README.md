@@ -8,11 +8,13 @@ Claude Code のアカウントと Anthropic Messages API 互換サービスを�
 
 正式サポートは macOS。Claude Code と Python 3.11 以降が必要です。`python3 --version` で確認してください。必要なら `brew install python` で導入できます。
 
-チェックアウトしたリポジトリから、次の一行でインストールできます。
+リポジトリの clone は不要です。次の一行で GitHub から取得してインストールできます。
 
 ```sh
-sh install.sh --local
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/takehaya/ccswitch/main/install.sh | sh
 ```
+
+更新も同じコマンドで行えます。既存の実行ファイルはダウンロードとバージョン確認が成功してから原子的に置き換えます。
 
 保存先は `~/.local/bin/ccprofile`。別の場所を使う場合は `CCPROFILE_INSTALL_DIR` を指定できます。インストーラーは `.zshrc` を変更しません。必要に応じて次を `.zshrc` に追加してください。
 
@@ -20,13 +22,11 @@ sh install.sh --local
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-以下のワンライナーでもインストールできます。ダウンロードしたスクリプトを実行するので、内容を確認したい場合は先に取得して読んでください。
+すでにリポジトリを clone している場合は、そのディレクトリで次を実行するとローカルのファイルからインストールできます。`--local` はこの場合だけ指定します。
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/takehaya/ccswitch/main/install.sh | sh
+sh install.sh --local
 ```
-
-更新も同じコマンドで行えます。既存の実行ファイルはダウンロードとバージョン確認が成功してから原子的に置き換えます。
 
 今回はスクリプト版なので `go install` は使いません。
 
