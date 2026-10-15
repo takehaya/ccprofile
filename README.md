@@ -86,6 +86,31 @@ We have not tested a live connection with this configuration.
 Check the model details for Anthropic Messages API support.
 Use the same setup process for other providers; ccprofile has no provider-specific behavior.
 
+### Set a custom model's context window
+
+If Claude Code reports an unknown model and assumes a 200K window, check the context limit with your API provider.
+For an API profile whose provider supports 262,144 tokens, save that limit with:
+
+```sh
+ccprofile edit sakura --context-window 262144
+ccprofile run sakura
+```
+
+You can also pass `--context-window TOKENS` when adding an API profile.
+Use a positive whole number of tokens, without a `k` or `M` suffix.
+Inspect the saved value with `ccprofile show sakura`.
+To remove the override:
+
+```sh
+ccprofile edit sakura --clear-context-window
+```
+
+ccprofile passes the saved value as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` for that profile only.
+Use this to set the limit Claude Code assumes.
+Your provider's actual context limit still applies.
+Check the limit again when changing models; other edits keep the saved value.
+Whether Claude Code applies the override depends on its version and how it resolves the model ID; see [custom model context windows](https://code.claude.com/docs/en/model-config#correct-the-window-for-a-gateway-or-custom-model-id).
+
 ## 3. Supply an API token
 
 When `ccprofile run sakura` prompts for a token, paste it and press Enter.

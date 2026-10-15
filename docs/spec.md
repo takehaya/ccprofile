@@ -22,10 +22,10 @@ Claude Code の公式アカウントと Anthropic Messages API 互換サービ�
 
 ```text
 ccprofile add NAME --type claude [--use-default-config]
-ccprofile add NAME --type api --base-url URL --model MODEL [--auth bearer|x-api-key]
+ccprofile add NAME --type api --base-url URL --model MODEL [--auth bearer|x-api-key] [--context-window TOKENS]
 ccprofile list
 ccprofile show NAME
-ccprofile edit NAME [--base-url URL] [--model MODEL] [--auth bearer|x-api-key]
+ccprofile edit NAME [--base-url URL] [--model MODEL] [--auth bearer|x-api-key] [--context-window TOKENS | --clear-context-window]
 ccprofile remove NAME
 ccprofile login NAME
 ccprofile run NAME [-- CLAUDE_ARGS...]
@@ -36,6 +36,8 @@ ccprofile --version
 各サブコマンドは `--help` を持つ。名前は `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`。重複名を暗黙に上書きしない。名前と種別の変更は新規作成とする。`claude` は API フラグを拒否する。`api` は URL・モデルを必須とし、追加時に `--auth` を省略した場合は `bearer` を保存する。`edit` で `--auth` を省略した場合は既存の認証方式を保持する。保存済み設定では認証方式を必須とする。
 
 URL は HTTPS のベース URL とし、ユーザー情報、クエリ、フラグメント、`/messages` の個別 API パスを拒否する。literal / percent-encoded の `.` / `..` パス要素も拒否し、正規化による endpoint 判定の回避を防ぐ。HTTP localhost の例外はない。追加時に認証・通信を行わない。
+
+`--context-window` は API プロファイルに限り使用できる。指定値は省略可能な整数フィールド `context_window` として保存する。範囲は 1–9007199254740991（JavaScript が正確に表現できる最大整数）で、これは入力形式の制限であり API の対応範囲を保証しない。既存の値を変更せず保持する場合はフラグを省略し、解除する場合は `edit --clear-context-window` を使う。設定と解除の同時指定は拒否する。旧設定ファイルにはフィールドを追加せず、そのまま読み込める。
 
 `list` / `show` は非機密設定とトークンを保存しない旨を表示する。`edit` は API 設定を検証後に原子的に保存する。認証方式の変更後は次回の起動でその方式のトークンを明示的に渡す。
 
@@ -75,6 +77,8 @@ PATH で `claude` を解決し、引数を配列で渡す。`eval` やシェル�
 プロバイダー関連の名前空間を除去し、プロファイルから必要な値だけを再構築する。未知の将来変数も同じ名前空間なら除去する。Claude の環境変数には [利用ガイド](usage.md#環境変数と-doctor) 記載の小さな allowlist を用いる。一般環境変数とプロキシ、ロケールは維持する。親シェルは変更しない。
 
 Claude モードには API 認証・接続先を残さない。API モードでは選択 URL と Bearer または X-Api-Key の一つだけを設定する。親の認証情報や他プロファイルにフォールバックしない。
+
+API プロファイルに `context_window` があれば `CLAUDE_CODE_MAX_CONTEXT_TOKENS` に10進整数文字列で渡す。親シェルの同変数は除去し、未設定の API プロファイルと Claude プロファイルには渡さない。管理対象 settings の同変数は従来どおり競合として検出する。モデル自体の対応上限は変更せず、圧縮を無効にする変数も自動設定しない。Claude Code が上書きを適用する条件はモデル ID とバージョンに依存する。
 
 トークン未指定時は端末で非表示入力を行う。端末なし・非表示入力不可の場合はエラーにし、エコーする入力にフォールバックしない。端末入力は noncanonical とし、入力の切り詰めを防ぐ。トークンは空白を含まない printable ASCII の 1–65536 文字。過大な入力はメモリを制限して行末まで消費した後に拒否し、途中でエコーを戻して残りの秘密を露出させない。erase と Ctrl-U による編集、Ctrl-D による取り消しを扱う。CLI 引数、設定、出力、ログに載せない。`CCPROFILE_TOKEN` 自体も子環境から除去する。環境変数は同じユーザー権限のプロセスから見える場合がある。
 

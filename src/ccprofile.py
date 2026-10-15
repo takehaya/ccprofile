@@ -26,6 +26,7 @@ NAME = re.compile(r'[a-zA-Z][a-zA-Z0-9_-]{0,63}\Z')
 ID = re.compile(r'[a-f0-9]{32}\Z')
 MAX_FILE = 1024 * 1024
 MAX_TOKEN = 65536
+MAX_CONTEXT_WINDOW = 2**53 - 1  # Largest exact integer in Claude Code's JavaScript runtime.
 ALLOWED_CLAUDE = frozenset({
     'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
     'CLAUDE_CODE_DISABLE_TERMINAL_TITLE', 'CLAUDE_CODE_ACCESSIBILITY',
@@ -70,12 +71,12 @@ def validate_url(value):
 def validate_profile(name, p):
     if not isinstance(name, str) or not NAME.fullmatch(name):
         raise SafeError('profile name must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$')
-    if not isinstance(p, dict) or set(p) - {'id', 'type', 'base_url', 'model', 'auth', 'use_default_config'}:
+    if not isinstance(p, dict) or set(p) - {'id', 'type', 'base_url', 'model', 'auth', 'use_default_config', 'context_window'}:
         raise SafeError('invalid profile fields')
     if not isinstance(p.get('id'), str) or not ID.fullmatch(p['id']):
         raise SafeError('invalid internal profile ID')
     if p.get('type') == 'claude':
-        if any(k in p for k in ('base_url', 'model', 'auth')):
+        if any(k in p for k in ('base_url', 'model', 'auth', 'context_window')):
             raise SafeError('claude profiles cannot contain API settings')
         if type(p.get('use_default_config', False)) is not bool:
             raise SafeError('invalid default config flag')
@@ -91,6 +92,10 @@ def validate_profile(name, p):
             raise SafeError('a model ID without whitespace or control characters is required')
         if p.get('auth') not in ('bearer', 'x-api-key'):
             raise SafeError('auth must be bearer or x-api-key')
+        if 'context_window' in p:
+            window = p['context_window']
+            if type(window) is not int or not 1 <= window <= MAX_CONTEXT_WINDOW:
+                raise SafeError('context window must be a positive integer no greater than 9007199254740991')
     else:
         raise SafeError('type must be claude or api')
 
@@ -333,6 +338,8 @@ def build_launch(p, directory, args, env, token=None):
     if p['type'] == 'api':
         child_env['ANTHROPIC_BASE_URL'] = p['base_url']
         child_env['ANTHROPIC_AUTH_TOKEN' if p['auth'] == 'bearer' else 'ANTHROPIC_API_KEY'] = validate_token(token or '')
+        if 'context_window' in p:
+            child_env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = str(p['context_window'])
     return child_args, child_env
 
 
@@ -485,6 +492,8 @@ def parser():
     add.add_argument('--model')
     add.add_argument('--auth', choices=('bearer', 'x-api-key'),
                      help='API authentication method (default: bearer)')
+    add.add_argument('--context-window', type=int, metavar='TOKENS',
+                     help='context window to declare to Claude Code for an API profile')
     add.add_argument('--use-default-config', action='store_true')
     commands.add_parser('list', help='list non-secret profile settings')
     for name in ('show', 'remove', 'login'):
@@ -496,6 +505,11 @@ def parser():
     edit.add_argument('--model')
     edit.add_argument('--auth', choices=('bearer', 'x-api-key'),
                       help='API authentication method (default: keep current value)')
+    context = edit.add_mutually_exclusive_group()
+    context.add_argument('--context-window', type=int, metavar='TOKENS',
+                         help='context window to declare to Claude Code (default: keep current value)')
+    context.add_argument('--clear-context-window', action='store_true',
+                         help='remove the context window override')
     run = commands.add_parser('run', help='run NAME [-- CLAUDE_ARGS...]')
     run.add_argument('name')
     doctor = commands.add_parser('doctor', help='check local configuration without sending API requests')
@@ -596,7 +610,7 @@ def main(argv=None, store=None):
                 raise SafeError('profile already exists; implicit overwrite is not allowed')
             profile = {'id': secrets.token_hex(16), 'type': args.type}
             if args.type == 'claude':
-                if any(value is not None for value in (args.base_url, args.model, args.auth)):
+                if any(value is not None for value in (args.base_url, args.model, args.auth, args.context_window)):
                     raise SafeError('claude profiles reject API flags')
                 if args.use_default_config:
                     if not (store.home / '.claude').is_dir():
@@ -607,21 +621,26 @@ def main(argv=None, store=None):
                     raise SafeError('only claude profiles can use ~/.claude')
                 profile.update(base_url=args.base_url, model=args.model,
                                auth=args.auth if args.auth is not None else 'bearer')
+                if args.context_window is not None:
+                    profile['context_window'] = args.context_window
             validate_profile(args.name, profile)
             c['profiles'][args.name] = profile
         store.update(add)
         print('Profile added.')
         return 0
     if args.command == 'edit':
-        if all(v is None for v in (args.base_url, args.model, args.auth)):
+        if all(v is None for v in (args.base_url, args.model, args.auth, args.context_window)) and not args.clear_context_window:
             raise SafeError('provide at least one API setting to edit')
         def edit(c):
             profile = find_profile(c, args.name)
             if profile['type'] != 'api':
                 raise SafeError('only API profiles can be edited')
-            for key, value in (('base_url', args.base_url), ('model', args.model), ('auth', args.auth)):
+            for key, value in (('base_url', args.base_url), ('model', args.model),
+                               ('auth', args.auth), ('context_window', args.context_window)):
                 if value is not None:
                     profile[key] = value
+            if args.clear_context_window:
+                profile.pop('context_window', None)
         store.update(edit)
         print('Profile updated. Supply the token for the selected authentication method on your next run.')
         return 0

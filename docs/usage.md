@@ -68,6 +68,19 @@ OAuth 処理は公式 `claude auth login` に委譲します。本ツールは O
 
 ## 環境変数と doctor
 
+API プロファイルのコンテキスト上限は `ccprofile edit NAME --context-window 262144` で指定できます。
+`add --type api` にも同じフラグを指定できます。
+接続先で確認した上限を整数で指定してください。`256k` や `1M` の表記には対応しません。
+設定は `context_window` として保存し、`show NAME` で確認できます。
+上限以外を編集したときは値を保持するので、モデル変更時には上限も再確認してください。
+`ccprofile edit NAME --clear-context-window` で解除できます。
+
+起動時には、選択プロファイルの値を `CLAUDE_CODE_MAX_CONTEXT_TOKENS` に渡します。
+親シェルの同変数は引き継がず、上限未設定のプロファイルには設定しません。
+この指定で API の容量は増えません。
+Claude Code が認識しないカスタムモデル ID（`[1m]` なし）では上限指定が直接適用されますが、認識済みモデルや `[1m]` 付き ID では適用条件が異なります（[公式仕様](https://code.claude.com/docs/en/model-config#correct-the-window-for-a-gateway-or-custom-model-id)）。
+`ccprofile` は圧縮を無効化する追加設定を行いません。実 Claude Code での動作は利用バージョンで確認してください。
+
 認証・接続先の混入を防ぐため、`ANTHROPIC_*`、`CLAUDE_*`、`CLAUDECODE`、`AWS_*`、`AZURE_*`、`GOOGLE_*`、`GCLOUD_*`、`GCP_*`、`VERTEX_*`、`BEDROCK_*`、`CCPROFILE_*` を一旦除去し、選択した設定だけを構築します。Claude の変数は以下の明示的な allowlist だけを引き継ぎます。
 
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`

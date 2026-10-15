@@ -200,6 +200,70 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(child['ANTHROPIC_API_KEY'], FAKE_TOKEN)
         self.assertNotIn('ANTHROPIC_AUTH_TOKEN', child)
 
+    def test_context_window_persistence_and_profile_isolation(self):
+        self.invoke('add', 'custom', '--type', 'api', '--base-url', 'https://example.com',
+                    '--model', 'custom-model', '--context-window', '262144')
+        self.add_api('automatic')
+        self.invoke('add', 'official', '--type', 'claude')
+        self.assertEqual(self.store.load()['profiles']['custom']['context_window'], 262144)
+        self.assertEqual(json.loads(self.invoke('show', 'custom').stdout)['context_window'], 262144)
+        self.invoke('edit', 'custom', '--auth', 'x-api-key')
+        parent = {'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+                  'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT': '1',
+                  'CCPROFILE_TOKEN': FAKE_TOKEN}
+        self.invoke('run', 'custom', extra=parent)
+        env = self.record()['env']
+        self.assertEqual(env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'], '262144')
+        self.assertEqual(env['ANTHROPIC_API_KEY'], FAKE_TOKEN)
+        self.assertNotIn('CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT', env)
+        for name in ('automatic', 'official'):
+            self.invoke('run', name, extra=parent)
+            self.assertNotIn('CLAUDE_CODE_MAX_CONTEXT_TOKENS', self.record()['env'])
+        self.invoke('login', 'official', extra=parent)
+        self.assertNotIn('CLAUDE_CODE_MAX_CONTEXT_TOKENS', self.record()['env'])
+        self.invoke('edit', 'custom', '--context-window', '131072')
+        self.invoke('run', 'custom', extra=parent)
+        self.assertEqual(self.record()['env']['CLAUDE_CODE_MAX_CONTEXT_TOKENS'], '131072')
+        self.invoke('edit', 'custom', '--clear-context-window')
+        self.assertNotIn('context_window', self.store.load()['profiles']['custom'])
+        self.invoke('run', 'custom', extra=parent)
+        self.assertNotIn('CLAUDE_CODE_MAX_CONTEXT_TOKENS', self.record()['env'])
+        self.assertEqual(parent['CLAUDE_CODE_MAX_CONTEXT_TOKENS'], '1000000')
+
+    def test_context_window_validation_preserves_config(self):
+        self.add_api()
+        before = self.store.path.read_bytes()
+        for value, status in (('0', 1), ('-1', 1), (str(2**53), 1), ('256k', 2),
+                              ('1.5', 2), (FAKE_TOKEN, 2)):
+            with self.subTest(value=value):
+                self.invoke('edit', 'gateway', '--context-window', value, expected=status)
+                self.invoke('add', 'invalid', '--type', 'api', '--base-url', 'https://example.com',
+                            '--model', 'm', '--context-window', value, expected=status)
+                self.assertEqual(self.store.path.read_bytes(), before)
+        self.invoke('add', 'official', '--type', 'claude', '--context-window', '262144', expected=1)
+        self.invoke('edit', 'gateway', '--context-window', '262144', '--clear-context-window', expected=2)
+        self.assertEqual(self.store.path.read_bytes(), before)
+        for value in (True, False, None, '262144', 1.5, 0, -1, 2**53):
+            config = self.store.load()
+            config['profiles']['gateway']['context_window'] = value
+            with self.subTest(stored=value), self.assertRaises(cc.SafeError):
+                self.store.save(config)
+            self.assertEqual(self.store.path.read_bytes(), before)
+        self.invoke('add', 'official', '--type', 'claude')
+        self.invoke('edit', 'official', '--context-window', '262144', expected=1)
+        self.invoke('edit', 'official', '--clear-context-window', expected=1)
+
+    def test_context_window_settings_conflict_blocks_launch(self):
+        self.add_api()
+        self.invoke('edit', 'gateway', '--context-window', '262144')
+        profile = self.store.load()['profiles']['gateway']
+        settings = self.store.ensure_dir(profile) / 'settings.json'
+        settings.write_text(json.dumps({'env': {'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000'}}))
+        self.invoke('run', 'gateway', extra={'CCPROFILE_TOKEN': FAKE_TOKEN}, expected=1)
+        self.assertFalse(self.output.exists())
+        result = self.invoke('doctor', 'gateway', expected=1)
+        self.assertIn('settings conflict', result.stdout)
+
     def test_models_missing_token_and_missing_claude(self):
         self.add_api()
         for args in (['--model', 'other'], ['--model=other']):
