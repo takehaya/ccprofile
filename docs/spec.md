@@ -4,7 +4,7 @@
 
 当初仕様の Go と API 用 macOS Keychain は、利用者の「Keychain は不要かもしれない」「ワンライナーで導入できるシェルスクリプトが嬉しい」という希望に合わせて変更した。トークンの保存方式の回答はまだないため、秘密情報を永続保存しない方式を採用する。
 
-- 単体ファイル `bin/ccprofile` を sh または直接実行する。
+- ソースは `src/launcher.sh` と `src/ccprofile.py` に分け、インストール時に連結する。生成された単体ファイル `ccprofile` を sh または直接実行する。
 - 内部処理は Python 3.11 以降の標準ライブラリ。追加パッケージ不要。
 - API トークンは端末の非表示入力または `CCPROFILE_TOKEN` で毎回渡す。
 - Keychain、平文ファイル、設定へのトークン保存は行わない。
@@ -94,7 +94,7 @@ Claude コマンド、正式対応 OS、設定の構文・権限、必須項目�
 
 手動確認は macOS での個人・仕事 OAuth ログイン分離、さくらの AI Engine の実接続、対応モデル、対話・tool use・streaming。確認済みの実 Claude Code バージョンは現時点ではない。
 
-成果物は `bin/ccprofile`、`install.sh`、`README.md`、`docs/spec.md`、`docs/plan.md`、`tests/`、`.github/workflows/test.yml`、`LICENSE`。
+成果物は `src/launcher.sh`、`src/ccprofile.py`、`install.sh`、`README.md`、`docs/spec.md`、`docs/plan.md`、`tests/`、`.github/workflows/test.yml`、`LICENSE`。
 
 ## 参照資料
 

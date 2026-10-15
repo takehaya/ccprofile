@@ -21,8 +21,10 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Check script syntax
         run: |
-          python3 -m py_compile bin/ccprofile
+          python3 -m py_compile src/ccprofile.py
           sh -n install.sh
-          sh bin/ccprofile --version
+          sh -n src/launcher.sh
+          CCPROFILE_INSTALL_DIR="$RUNNER_TEMP/ccprofile-bin" sh install.sh --local
+          sh "$RUNNER_TEMP/ccprofile-bin/ccprofile" --version
       - name: Test with fake Claude Code (no external API)
         run: python3 -m unittest discover -s tests -v

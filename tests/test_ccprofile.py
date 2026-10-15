@@ -18,8 +18,13 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = ROOT / 'bin' / 'ccprofile'
-cc = types.SimpleNamespace(**runpy.run_path(str(CLI)))
+# Exercise the installed, concatenated executable in every subprocess test.
+_installed = tempfile.TemporaryDirectory(prefix='ccprofile-tests-')
+CLI = Path(_installed.name) / 'ccprofile'
+subprocess.run(['sh', str(ROOT / 'install.sh'), '--local'], check=True,
+               env={**os.environ, 'CCPROFILE_INSTALL_DIR': _installed.name},
+               capture_output=True)
+cc = types.SimpleNamespace(**runpy.run_path(str(ROOT / 'src' / 'ccprofile.py')))
 FAKE_TOKEN = 'NONSECRET_TEST_TOKEN'
 FAKE = r'''#!/usr/bin/env python3
 import json, os, signal, sys
@@ -383,6 +388,44 @@ class ProfileTests(unittest.TestCase):
         installed = subprocess.run([str(install / 'ccprofile'), '--version'], capture_output=True, text=True)
         self.assertEqual(installed.returncode, 0)
         self.assertIn('ccprofile 0.1.0', installed.stdout)
+
+    def test_remote_installer_concatenation_and_failed_download(self):
+        # Feed the installer through stdin, as in curl | sh; all downloads
+        # use fixtures so this also covers a partial second-file failure.
+        curl = self.fakebin / 'curl'
+        curl.write_text('''#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+name = sys.argv[-1].rsplit('/', 1)[-1]
+if name not in ('launcher.sh', 'ccprofile.py'):
+    sys.exit(22)
+if name == 'ccprofile.py' and os.environ.get('FAIL_DOWNLOAD'):
+    sys.stdout.write('partial download')
+    sys.exit(22)
+sys.stdout.buffer.write((Path(os.environ['SOURCE_DIR']) / name).read_bytes())
+''')
+        curl.chmod(0o755)
+        install = self.home / 'remote install'
+        env = dict(self.env, CCPROFILE_INSTALL_DIR=str(install),
+                   SOURCE_DIR=str(ROOT / 'src'))
+        installer = (ROOT / 'install.sh').read_text()
+        result = subprocess.run(['sh'], input=installer, env=env, cwd=self.home,
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        artifact = install / 'ccprofile'
+        expected = ((ROOT / 'src' / 'launcher.sh').read_bytes()
+                    + (ROOT / 'src' / 'ccprofile.py').read_bytes())
+        self.assertEqual(artifact.read_bytes(), expected)
+        result = subprocess.run(['sh', str(artifact), '--version'], env=env,
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('ccprofile 0.1.0', result.stdout)
+        result = subprocess.run(['sh'], input=installer,
+                                env=dict(env, FAIL_DOWNLOAD='1'), cwd=self.home,
+                                capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(artifact.read_bytes(), expected)
+        self.assertEqual(list(install.iterdir()), [artifact])
 
 
 if __name__ == '__main__':

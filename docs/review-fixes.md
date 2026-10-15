@@ -11,7 +11,7 @@
 | F6: 初回 doctor が保存先を検査しない | 管理ルートの作成と一時ファイルへのデータ書き込み・fsync を、プロファイル表と独立して実施 | 不正な `.config`、書き込み不可、作成・データ書き込み失敗、probe の cleanup |
 | F7: URL の dot segment で endpoint 拒否を回避 | percent-decode 後の `.` / `..` 要素を拒否 | add / edit の literal / encoded パス拒否、失敗時の既存設定保持、通常 `/api` / `/v1` の許可 |
 
-実装は [bin/ccprofile](../bin/ccprofile)、追加した 17 回帰テストは [tests/test_review_regressions.py](../tests/test_review_regressions.py)。既存テストの default・環境変数の期待値も更新した。
+実装は [src/ccprofile.py](../src/ccprofile.py)、追加した 17 回帰テストは [tests/test_review_regressions.py](../tests/test_review_regressions.py)。既存テストの default・環境変数の期待値も更新した。
 
 ## F4 の扱い
 

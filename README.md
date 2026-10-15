@@ -137,12 +137,13 @@ API プロファイルの送信先は登録 URL です。各サービスの契�
 
 ```sh
 python3 -m unittest discover -s tests -v
-python3 -m py_compile bin/ccprofile
+python3 -m py_compile src/ccprofile.py
 sh -n install.sh
-sh bin/ccprofile --version
+sh -n src/launcher.sh
+python3 src/ccprofile.py --version
 ```
 
-シェルと Python の両方から実行できる一つのファイルです。シェルの全ファイル構文検査では Python 部分を解釈できないため、CLI は Python の構文検査と実際のシェル起動で検証します。
+ソースはシェルの起動部分 [src/launcher.sh](src/launcher.sh) と Python 本体 [src/ccprofile.py](src/ccprofile.py) に分かれています。インストーラーがこの順で連結し、単体の `ccprofile` を生成します。GitHub 上ではそれぞれの言語でハイライトされ、Python 本体は直接実行して開発できます。テストではインストーラーが生成した実行ファイルを使い、シェルからの起動も確認します。
 
 テストは実 API や実 OAuth 認証を使いません。CI は macOS / Linux、Python 3.11 / 3.14。Linux は開発用オフラインテスト環境で、正式サポート対象には含めません。
 

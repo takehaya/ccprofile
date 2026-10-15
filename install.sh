@@ -27,11 +27,13 @@ trap 'exit 143' TERM
 
 if [ "$mode" = local ]; then
     source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-    cp "$source_dir/bin/ccprofile" "$tmp"
+    cat "$source_dir/src/launcher.sh" "$source_dir/src/ccprofile.py" > "$tmp"
 else
     command -v curl >/dev/null 2>&1 || fail 'curl is required'
-    curl --proto '=https' --tlsv1.2 -fsSL \
-        'https://raw.githubusercontent.com/takehaya/ccswitch/main/bin/ccprofile' -o "$tmp"
+    for source_file in launcher.sh ccprofile.py; do
+        curl --proto '=https' --tlsv1.2 -fsSL \
+            "https://raw.githubusercontent.com/takehaya/ccswitch/main/src/$source_file" >> "$tmp"
+    done
 fi
 
 chmod 755 "$tmp"
