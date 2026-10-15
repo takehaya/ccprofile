@@ -1,0 +1,10 @@
+Open Code Review tooling assets
+
+Source: https://github.com/spencermarx/open-code-review
+Installed version: 2.5.0
+Author: Spencer Marx
+License: Apache-2.0 (see LICENSE in this directory)
+
+The .ocr skills and commands, reviewer metadata, and corresponding .codex
+command copies originate from Open Code Review. Project-specific configuration
+has been customized for ccprofile. The ccprofile application itself is MIT licensed.
