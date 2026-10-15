@@ -32,7 +32,7 @@ else
     command -v curl >/dev/null 2>&1 || fail 'curl is required'
     for source_file in launcher.sh ccprofile.py; do
         curl --proto '=https' --tlsv1.2 -fsSL \
-            "https://raw.githubusercontent.com/takehaya/ccswitch/main/src/$source_file" >> "$tmp"
+            "https://raw.githubusercontent.com/takehaya/ccprofile/main/src/$source_file" >> "$tmp"
     done
 fi
 

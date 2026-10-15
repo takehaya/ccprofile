@@ -483,7 +483,8 @@ def parser():
     add.add_argument('--type', required=True, choices=('claude', 'api'))
     add.add_argument('--base-url')
     add.add_argument('--model')
-    add.add_argument('--auth', choices=('bearer', 'x-api-key'))
+    add.add_argument('--auth', choices=('bearer', 'x-api-key'),
+                     help='API authentication method (default: bearer)')
     add.add_argument('--use-default-config', action='store_true')
     commands.add_parser('list', help='list non-secret profile settings')
     for name in ('show', 'remove', 'login'):
@@ -493,7 +494,8 @@ def parser():
     edit.add_argument('name')
     edit.add_argument('--base-url')
     edit.add_argument('--model')
-    edit.add_argument('--auth', choices=('bearer', 'x-api-key'))
+    edit.add_argument('--auth', choices=('bearer', 'x-api-key'),
+                      help='API authentication method (default: keep current value)')
     run = commands.add_parser('run', help='run NAME [-- CLAUDE_ARGS...]')
     run.add_argument('name')
     doctor = commands.add_parser('doctor', help='check local configuration without sending API requests')
@@ -603,7 +605,8 @@ def main(argv=None, store=None):
             else:
                 if args.use_default_config:
                     raise SafeError('only claude profiles can use ~/.claude')
-                profile.update(base_url=args.base_url, model=args.model, auth=args.auth)
+                profile.update(base_url=args.base_url, model=args.model,
+                               auth=args.auth if args.auth is not None else 'bearer')
             validate_profile(args.name, profile)
             c['profiles'][args.name] = profile
         store.update(add)

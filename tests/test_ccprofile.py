@@ -68,9 +68,9 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn(FAKE_TOKEN, p.stdout + p.stderr)
         return p
 
-    def add_api(self, name='gateway', auth='bearer'):
+    def add_api(self, name='gateway', auth=None):
         self.invoke('add', name, '--type', 'api', '--base-url', 'https://example.com/api',
-                    '--model', 'model-v1', '--auth', auth)
+                    '--model', 'model-v1', *(['--auth', auth] if auth is not None else []))
 
     def record(self):
         return json.loads(self.output.read_text())
@@ -89,6 +89,8 @@ class ProfileTests(unittest.TestCase):
         updated = json.loads(self.invoke('show', 'AnyService').stdout)
         self.assertEqual(updated['model'], 'new-model')
         self.assertEqual(updated['auth'], 'x-api-key')
+        self.invoke('edit', 'AnyService', '--model', 'another-model')
+        self.assertEqual(json.loads(self.invoke('show', 'AnyService').stdout)['auth'], 'x-api-key')
         self.invoke('remove', 'AnyService')
         self.invoke('show', 'AnyService', expected=1)
         self.assertIn('Private_7', self.store.load()['profiles'])
@@ -102,6 +104,7 @@ class ProfileTests(unittest.TestCase):
             ('add', '1invalid', '--type', 'claude'),
             ('add', 'x'*65, '--type', 'claude'),
             ('add', 'bad', '--type', 'claude', '--model', ''),
+            ('add', 'bad', '--type', 'claude', '--auth', 'bearer'),
             ('add', 'bad', '--type', 'api'),
             ('add', 'bad', '--type', 'api', '--use-default-config'),
         ]
@@ -136,6 +139,20 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn('ANTHROPIC_CONFIG_DIR', self.record()['env'])
         self.invoke('remove', 'default')
         self.assertEqual(original.read_text(), 'existing placeholder')
+
+    def test_api_auth_defaults_and_explicit_modes(self):
+        for name, auth in (('implicit', None), ('bearer', 'bearer'), ('apikey', 'x-api-key')):
+            with self.subTest(auth=auth):
+                self.add_api(name, auth)
+                profile = json.loads(self.invoke('show', name).stdout)
+                self.assertEqual(profile['auth'], auth or 'bearer')
+                self.invoke('run', name, extra={'CCPROFILE_TOKEN': FAKE_TOKEN})
+                env = self.record()['env']
+                selected, removed = ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN')
+                if auth != 'x-api-key':
+                    selected, removed = removed, selected
+                self.assertEqual(env[selected], FAKE_TOKEN)
+                self.assertNotIn(removed, env)
 
     def test_environment_auth_args_and_parent_unchanged(self):
         self.add_api()

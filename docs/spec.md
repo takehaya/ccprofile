@@ -2,7 +2,7 @@
 
 ## 最新の変更
 
-当初仕様の Go と API 用 macOS Keychain は、利用者の「Keychain は不要かもしれない」「ワンライナーで導入できるシェルスクリプトが嬉しい」という希望に合わせて変更した。トークンの保存方式の回答はまだないため、秘密情報を永続保存しない方式を採用する。
+当初仕様の Go と API 用 macOS Keychain は、利用者の「Keychain は不要かもしれない」「ワンライナーで導入できるシェルスクリプトが嬉しい」という希望に合わせて変更した。ツール自身はトークンを永続保存せず、端末入力または環境変数から受け取る。毎回の入力を省く場合は、利用者がシェルの起動設定で `CCPROFILE_TOKEN` を保持できる。
 
 - ソースは `src/launcher.sh` と `src/ccprofile.py` に分け、インストール時に連結する。生成された単体ファイル `ccprofile` を sh または直接実行する。
 - 内部処理は Python 3.11 以降の標準ライブラリ。追加パッケージ不要。
@@ -22,7 +22,7 @@ Claude Code の公式アカウントと Anthropic Messages API 互換サービ�
 
 ```text
 ccprofile add NAME --type claude [--use-default-config]
-ccprofile add NAME --type api --base-url URL --model MODEL --auth bearer|x-api-key
+ccprofile add NAME --type api --base-url URL --model MODEL [--auth bearer|x-api-key]
 ccprofile list
 ccprofile show NAME
 ccprofile edit NAME [--base-url URL] [--model MODEL] [--auth bearer|x-api-key]
@@ -33,7 +33,7 @@ ccprofile doctor [NAME]
 ccprofile --version
 ```
 
-各サブコマンドは `--help` を持つ。名前は `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`。重複名を暗黙に上書きしない。名前と種別の変更は新規作成とする。`claude` は API フラグを拒否する。`api` は URL・モデル・認証方式を必須とする。
+各サブコマンドは `--help` を持つ。名前は `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`。重複名を暗黙に上書きしない。名前と種別の変更は新規作成とする。`claude` は API フラグを拒否する。`api` は URL・モデルを必須とし、追加時に `--auth` を省略した場合は `bearer` を保存する。`edit` で `--auth` を省略した場合は既存の認証方式を保持する。保存済み設定では認証方式を必須とする。
 
 URL は HTTPS のベース URL とし、ユーザー情報、クエリ、フラグメント、`/messages` の個別 API パスを拒否する。literal / percent-encoded の `.` / `..` パス要素も拒否し、正規化による endpoint 判定の回避を防ぐ。HTTP localhost の例外はない。追加時に認証・通信を行わない。
 
@@ -72,7 +72,7 @@ default 再利用時は、親の `CLAUDE_CONFIG_DIR` と `ANTHROPIC_CONFIG_DIR` 
 
 PATH で `claude` を解決し、引数を配列で渡す。`eval` やシェル文字列を組み立てない。`--` の後ろをそのまま転送する。API モードでは `--model MODEL` を追加し、利用者側の `--model` と `--model=...` を拒否する。
 
-プロバイダー関連の名前空間を除去し、プロファイルから必要な値だけを再構築する。未知の将来変数も同じ名前空間なら除去する。Claude の環境変数には README 記載の小さな allowlist を用いる。一般環境変数とプロキシ、ロケールは維持する。親シェルは変更しない。
+プロバイダー関連の名前空間を除去し、プロファイルから必要な値だけを再構築する。未知の将来変数も同じ名前空間なら除去する。Claude の環境変数には [利用ガイド](usage.md#環境変数と-doctor) 記載の小さな allowlist を用いる。一般環境変数とプロキシ、ロケールは維持する。親シェルは変更しない。
 
 Claude モードには API 認証・接続先を残さない。API モードでは選択 URL と Bearer または X-Api-Key の一つだけを設定する。親の認証情報や他プロファイルにフォールバックしない。
 
