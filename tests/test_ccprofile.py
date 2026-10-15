@@ -81,8 +81,9 @@ class ProfileTests(unittest.TestCase):
         self.invoke('add', 'Private_7', '--type', 'claude')
         self.add_api('AnyService')
         listing = self.invoke('list').stdout
-        self.assertIn('Private_7\tclaude', listing)
-        self.assertIn('AnyService\tapi\tmodel-v1', listing)
+        listed_rows = [line.split() for line in listing.splitlines()[1:]]
+        self.assertIn(['Private_7', 'claude', '-', '-', '-'], listed_rows)
+        self.assertEqual(listed_rows[0][:3], ['AnyService', 'api', 'model-v1'])
         self.assertEqual(json.loads(self.invoke('show', 'AnyService').stdout)['auth'], 'bearer')
         self.invoke('edit', 'AnyService', '--base-url', 'https://other.example/v1', '--model', 'new-model', '--auth', 'x-api-key')
         updated = json.loads(self.invoke('show', 'AnyService').stdout)

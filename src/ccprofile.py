@@ -633,10 +633,13 @@ def main(argv=None, store=None):
         return 0
     c = store.load()
     if args.command == 'list':
-        print('NAME\tTYPE\tMODEL\tBASE URL\tTOKEN')
+        rows = [('NAME', 'TYPE', 'MODEL', 'BASE URL', 'TOKEN')]
         for name, p in sorted(c['profiles'].items()):
-            print('\t'.join((name, p['type'], p.get('model', '-'), p.get('base_url', '-'),
-                             'not saved; supplied at run' if p['type'] == 'api' else '-')))
+            rows.append((name, p['type'], p.get('model', '-'), p.get('base_url', '-'),
+                         'not saved; supplied at run' if p['type'] == 'api' else '-'))
+        widths = [max(len(cell) for cell in column) for column in zip(*rows)]
+        for row in rows:
+            print('  '.join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
         return 0
     p = find_profile(c, args.name)
     if args.command == 'show':
