@@ -63,7 +63,11 @@ ccprofile run work
 This creates a dedicated configuration directory.
 Use `login` to sign in to your work account.
 
-### Use Sakura AI Engine
+### Use an API service
+
+Register an Anthropic Messages API-compatible service with `--type api`, its base URL, and a model ID.
+Choose any profile name.
+For example, to use Sakura AI Engine:
 
 ```sh
 ccprofile add sakura --type api \
@@ -76,7 +80,8 @@ Omit `--auth` to use `bearer`.
 Add `--auth x-api-key` only for services that require that authentication method.
 Use an HTTPS base URL.
 
-Find the model ID under "Available models" (「利用可能なモデル」) in the control panel ([Sakura operation guide](https://manual.sakura.ad.jp/cloud/ai-engine/03-operation-guide.html)).
+Find model IDs in your provider's documentation or control panel.
+For Sakura, open "Available models" (「利用可能なモデル」) in the control panel ([Sakura operation guide](https://manual.sakura.ad.jp/cloud/ai-engine/03-operation-guide.html)).
 We have not tested a live connection with this configuration.
 Check the model details for Anthropic Messages API support.
 Use the same setup process for other providers; ccprofile has no provider-specific behavior.
