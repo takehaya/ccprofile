@@ -40,10 +40,10 @@ ccprofile add personal --type claude --use-default-config
 ccprofile add work --type claude
 ccprofile login work
 
-# 事業者は任意。URL は HTTPS のベース URL、モデルは利用可能な ID。
+# さくらの AI Engine の設定例。利用可能なモデルと対応 API を確認してください。
 ccprofile add sakura --type api \
   --base-url https://api.ai.sakura.ad.jp \
-  --model MODEL_ID --auth bearer
+  --model preview/Kimi-K2.7-Code --auth bearer
 
 ccprofile list
 ccprofile show sakura
@@ -54,7 +54,15 @@ ccprofile run work -- -p 'Review this code'
 ccprofile run sakura
 ```
 
-API プロファイルでは `run` が端末でトークンを非表示入力として受け取ります。毎回入力し、保存しません。端末がない場合は安全にエラーにします。入力をエコーする標準入力へのフォールバックはしません。許可する長さは 1–65,536 文字の空白を含まない printable ASCII です。端末の行バッファによる切り詰めを避け、過大な入力は行末まで受け取ってから拒否します。Backspace / Delete と Ctrl-U で編集でき、Ctrl-D は入力を取り消します。
+モデル ID はサービスの管理画面に表示される文字列をそのまま指定します。さくらでは左メニューの「利用可能なモデル」で確認できます（[公式操作ガイド](https://manual.sakura.ad.jp/cloud/ai-engine/03-operation-guide.html)）。上の `preview/Kimi-K2.7-Code` はコーディング向けモデルの設定例です。さくら経由での Claude Code の実動作は未検証なので、モデル詳細で Anthropic Messages API への対応を確認してください。`sakura` という名前や URL に特別な処理はありません。
+
+すでに `sakura` を登録している場合は、モデルだけ変更できます。
+
+```sh
+ccprofile edit sakura --model preview/Kimi-K2.7-Code
+```
+
+API プロファイルでは、環境変数 `CCPROFILE_TOKEN` が未設定の場合に `run` が端末でトークンを非表示入力として受け取ります。`ccprofile` はトークンを保存しません。トークン未設定で端末もない場合は安全にエラーにします。入力をエコーする標準入力へのフォールバックはしません。許可する長さは 1–65,536 文字の空白を含まない printable ASCII です。端末の行バッファによる切り詰めを避け、過大な入力は行末まで受け取ってから拒否します。Backspace / Delete と Ctrl-U で編集でき、Ctrl-D は入力を取り消します。
 
 環境変数 `CCPROFILE_TOKEN` がある場合は、その値を今回の起動に使用します。トークンをコマンドラインに直接書かず、シェルの履歴にも残さないでください。zsh では、例えば次のように入力できます。
 
@@ -64,6 +72,21 @@ print
 CCPROFILE_TOKEN="$token" ccprofile run sakura
 unset token
 ```
+
+毎回の入力を省きたい場合は、zsh なら `~/.zshrc`、bash なら `~/.bashrc` に次の設定をエディターで追加できます。実際のトークンを含む行をターミナルで直接実行せず、シェル履歴への記録を避けてください。
+
+```sh
+export CCPROFILE_TOKEN='ここを実際のトークンに置き換える'
+```
+
+設定を読み込んでから起動します。
+
+```sh
+source ~/.zshrc  # bash の場合は source ~/.bashrc
+ccprofile run sakura
+```
+
+この方法では起動設定ファイルにトークンが平文で残ります。そのファイルを Git にコミットしないでください。bash のログインシェルでは `~/.bash_profile` などから `~/.bashrc` を読み込む設定も必要です。`CCPROFILE_TOKEN` は全 API プロファイルで共通なので、サービスごとにトークンが異なる場合は起動ごとに渡してください。さくらのトークンは `UUID:シークレット` 全体を使います（[発行手順](https://manual.sakura.ad.jp/cloud/ai-engine/02-howto.html)）。
 
 `bearer` は `ANTHROPIC_AUTH_TOKEN`、`x-api-key` は `ANTHROPIC_API_KEY` に渡します。`CCPROFILE_TOKEN` 自体は Claude Code へ引き継ぎません。親環境にある `ANTHROPIC_API_KEY` などをトークンの代わりに再利用することはありません。
 
