@@ -6,6 +6,7 @@ from pathlib import Path
 import pty
 import runpy
 import select
+import shutil
 import signal
 import stat
 import subprocess
@@ -74,6 +75,15 @@ class ProfileTests(unittest.TestCase):
 
     def record(self):
         return json.loads(self.output.read_text())
+
+    def test_tmux_command_without_a_terminal_runs_the_program_directly(self):
+        self.invoke('tmux', 'claude', '--', '-p', 'hi', extra={'ANTHROPIC_BASE_URL': 'https://parent.example'})
+        record = self.record()
+        self.assertEqual(record['args'], ['-p', 'hi'])
+        self.assertEqual(record['env']['ANTHROPIC_BASE_URL'], 'https://parent.example')
+        self.assertNotIn('TMUX', record['env'])
+        self.invoke('tmux', 'no-such-program', expected=1)
+        self.invoke('tmux', '--', 'x', expected=2)
 
     def test_crud_and_arbitrary_names(self):
         self.invoke('list')
@@ -279,7 +289,7 @@ class ProfileTests(unittest.TestCase):
                                                    'check_settings':mock.Mock()}), mock.patch.object(cc.os, 'execve') as execute:
             with mock.patch.dict(os.environ, self.env, clear=True):
                 with self.assertRaises(cc.SafeError):
-                    cc.main(['run', 'gateway'], self.store)
+                    cc.main(['run', '--no-tmux', 'gateway'], self.store)
             execute.assert_not_called()
         self.invoke('run', 'gateway', extra={'PATH':os.path.dirname(sys.executable)}, expected=1)
 
@@ -392,7 +402,7 @@ class ProfileTests(unittest.TestCase):
                 pid, master = pty.fork()
                 if pid == 0:
                     os.chdir(self.home)
-                    os.execve(str(CLI), [str(CLI), 'run', 'gateway'], self.env)
+                    os.execve(str(CLI), [str(CLI), 'run', '--no-tmux', 'gateway'], self.env)
                 captured = b''
                 reaped = False
                 try:
@@ -508,6 +518,124 @@ sys.stdout.buffer.write((Path(os.environ['SOURCE_DIR']) / name).read_bytes())
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(artifact.read_bytes(), expected)
         self.assertEqual(list(install.iterdir()), [artifact])
+
+
+@unittest.skipUnless(shutil.which('tmux'), 'tmux is not installed')
+class TmuxTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='cct')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.tmux = shutil.which('tmux')
+        # A private socket directory keeps the tests away from the user's tmux server.
+        sockets = self.root / 's'
+        sockets.mkdir()
+        env = {k: v for k, v in os.environ.items() if k != 'TMUX'}
+        env['TMUX_TMPDIR'] = str(sockets)
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(subprocess.run, [self.tmux, 'kill-server'], capture_output=True)
+        self.cwd = self.root / 'my.repo'
+        self.cwd.mkdir()
+
+    def open(self, answers=(), profile='work', command=('sleep', '30')):
+        replies = iter(answers)
+        out = io.StringIO()
+        name = cc.tmux_open(self.tmux, self.cwd, profile, list(command),
+                            ask=lambda prompt: next(replies), out=out)
+        return name, out.getvalue()
+
+    def test_names_sessions_after_the_folder(self):
+        self.assertEqual(cc.tmux_base_name(Path('/x/my.repo')), 'my_repo')
+        self.assertEqual(cc.tmux_base_name(Path('/x/a:b c')), 'a_b_c')
+        self.assertEqual(cc.tmux_base_name(Path('/')), 'root')
+
+    def test_reuses_by_default_and_opens_new_on_request(self):
+        first, _ = self.open()
+        self.assertEqual(first, 'my_repo')
+        again, listing = self.open([''])
+        self.assertEqual(again, first)
+        self.assertIn('1) my_repo', listing)
+        second, _ = self.open(['y'])
+        self.assertEqual(second, 'my_repo-2')
+        sessions, _ = cc.tmux_sessions(self.tmux, self.cwd, 'work')
+        self.assertEqual(sorted(s['name'] for s in sessions), ['my_repo', 'my_repo-2'])
+        chosen, _ = self.open(['maybe', 'n', '9', '2'])
+        self.assertEqual(chosen, sessions[1]['name'])
+
+    def test_profiles_and_folders_do_not_share_sessions(self):
+        first, _ = self.open()
+        other, _ = self.open(profile='personal')
+        self.assertEqual(other, 'my_repo-2')
+        subprocess.run([self.tmux, 'new-session', '-d', '-s', 'unrelated'], check=True)
+        self.assertEqual([s['name'] for s in cc.tmux_sessions(self.tmux, self.cwd, 'work')[0]], [first])
+
+    def test_lists_recent_output_of_each_session(self):
+        script = 'printf "first line\\n\\n────\\nworking on tests\\n"; sleep 30'
+        self.open(command=('sh', '-c', script))
+        for _ in range(50):
+            if 'working on tests' in '\n'.join(cc.tmux_preview(self.tmux, 'my_repo')):
+                break
+            time.sleep(0.1)
+        _, listing = self.open([''])
+        self.assertIn('│ first line', listing)
+        self.assertIn('│ working on tests', listing)
+        self.assertNotIn('────', listing)
+
+    def test_cancelled_selection_creates_nothing(self):
+        self.open()
+        def eof(prompt):
+            raise EOFError
+        with self.assertRaises(cc.SafeError):
+            cc.tmux_open(self.tmux, self.cwd, 'work', ['sleep', '30'], ask=eof, out=io.StringIO())
+        self.assertEqual(len(cc.tmux_sessions(self.tmux, self.cwd, 'work')[0]), 1)
+
+    def terminal(self, *args, setup=()):
+        """Run the CLI on a pseudo-terminal until the fake claude writes its record."""
+        home = self.root / 'home'
+        fakebin = home / 'fakebin'
+        fakebin.mkdir(parents=True)
+        (fakebin / 'claude').write_text(FAKE)
+        (fakebin / 'claude').chmod(0o755)
+        output = home / 'record.json'
+        env = {'HOME': str(home), 'PATH': str(fakebin) + os.pathsep + os.environ['PATH'],
+               'FAKE_OUTPUT': str(output), 'FAKE_MODE': 'signals', 'TERM': 'xterm',
+               'LANG': 'C.UTF-8', 'TMUX_TMPDIR': os.environ['TMUX_TMPDIR'],
+               'ANTHROPIC_BASE_URL': 'https://parent.example'}
+        for command in setup:
+            subprocess.run([str(CLI), *command], env=env, check=True, capture_output=True, cwd=self.cwd)
+        pid, master = pty.fork()
+        if pid == 0:
+            os.chdir(self.cwd)
+            os.execve(str(CLI), [str(CLI), *args], env)
+        try:
+            deadline = time.monotonic() + 10
+            while not output.exists() and time.monotonic() < deadline:
+                with contextlib.suppress(OSError):
+                    if select.select([master], [], [], 0.1)[0]:
+                        os.read(master, 65536)
+            return json.loads(output.read_text())
+        finally:
+            self.sessions = {owner: [s['name'] for s in cc.tmux_sessions(self.tmux, self.cwd, owner)[0]]
+                             for owner in ('work', 'command:claude')}
+            subprocess.run([self.tmux, 'kill-server'], capture_output=True)
+            os.waitpid(pid, 0)
+            os.close(master)
+
+    def test_run_on_a_terminal_starts_claude_inside_tmux(self):
+        record = self.terminal('run', 'work', '--', '--flag', setup=[('add', 'work', '--type', 'claude')])
+        self.assertEqual(record['args'], ['--flag'])
+        self.assertIn('TMUX', record['env'])
+        self.assertNotIn('ANTHROPIC_BASE_URL', record['env'])
+        self.assertEqual(self.sessions, {'work': ['my_repo'], 'command:claude': []})
+
+    def test_tmux_command_runs_any_program_with_its_environment(self):
+        record = self.terminal('tmux', 'claude', '--', '--flag', 'x')
+        self.assertEqual(record['args'], ['--flag', 'x'])
+        self.assertIn('TMUX', record['env'])
+        self.assertEqual(record['env']['ANTHROPIC_BASE_URL'], 'https://parent.example')
+        self.assertEqual(self.sessions, {'work': [], 'command:claude': ['my_repo']})
 
 
 if __name__ == '__main__':

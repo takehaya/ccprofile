@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
+import unicodedata
 import urllib.parse
 
 try:
@@ -475,6 +477,146 @@ def check_settings(directory, api):
             raise SafeError('conflicting Claude settings found; run ccprofile doctor NAME')
 
 
+TMUX_FORMAT = '\x1f'.join(('#{session_name}', '#{session_activity}', '#{session_attached}',
+                           '#{pane_title}', '#{@ccprofile_cwd}', '#{@ccprofile_owner}'))
+# Keep the session open on failure so launch errors stay readable.
+TMUX_PAUSE = ('"$@"; status=$?; if [ "$status" -ne 0 ]; then '
+              'printf "\\nExited with status %s. Press Enter to close." "$status"; '
+              'read -r _; fi; exit "$status"')
+
+
+def tmux_wanted(env):
+    return ('TMUX' not in env and sys.stdin.isatty() and sys.stdout.isatty()
+            and shutil.which('tmux') is not None)
+
+
+def tmux_base_name(cwd):
+    # tmux reserves '.' and ':' in target names.
+    return re.sub(r'[.:\s]', '_', Path(cwd).name) or 'root'
+
+
+def _tmux(tmux, *args):
+    try:
+        return subprocess.run([tmux, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise SafeError('tmux did not respond') from None
+
+
+def tmux_sessions(tmux, cwd, owner):
+    """Return sessions opened for cwd and owner, most recent first, and all session names.
+
+    The owner is a profile name, or 'command:' and a program name for ccprofile tmux.
+    """
+    result = _tmux(tmux, 'list-sessions', '-F', TMUX_FORMAT)
+    if result.returncode:
+        return [], set()  # No server is running.
+    sessions, names = [], set()
+    for line in result.stdout.decode('utf-8', 'replace').splitlines():
+        fields = line.split('\x1f')
+        if len(fields) != 6:
+            continue
+        name, activity, attached, title, session_cwd, session_owner = fields
+        names.add(name)
+        if session_cwd == str(cwd) and session_owner == owner:
+            sessions.append({'name': name, 'activity': int(activity) if activity.isdigit() else 0,
+                             'attached': attached not in ('', '0'), 'title': title})
+    sessions.sort(key=lambda s: -s['activity'])
+    return sessions, names
+
+
+def _printable(text):
+    return ''.join(c if c.isprintable() else '?' for c in text)
+
+
+def _fit(text, width):
+    out, used = '', 0
+    for c in text:
+        w = 2 if unicodedata.east_asian_width(c) in 'WF' else 1
+        if used + w > width:
+            return out + '…'
+        out, used = out + c, used + w
+    return out
+
+
+def tmux_preview(tmux, name, limit=4):
+    result = _tmux(tmux, 'capture-pane', '-p', '-t', '=' + name + ':')
+    lines = result.stdout.decode('utf-8', 'replace').splitlines() if result.returncode == 0 else []
+    # Skip borders, separators, and blank lines drawn by the Claude Code UI.
+    return [_printable(line.strip()) for line in lines if any(c.isalnum() for c in line)][-limit:]
+
+
+def _ago(seconds):
+    for unit, size in (('d', 86400), ('h', 3600), ('m', 60)):
+        if seconds >= size:
+            return str(seconds // size) + unit + ' ago'
+    return 'just now'
+
+
+def choose_tmux_session(tmux, sessions, ask=input, out=sys.stdout, now=None):
+    """Return the session to reopen, or None to open a new one."""
+    now = int(time.time()) if now is None else now
+    width = shutil.get_terminal_size().columns
+    print('Existing sessions for this folder:', file=out)
+    for i, s in enumerate(sessions, 1):
+        state = 'attached' if s['attached'] else 'detached'
+        print(_fit('  %d) %s  [%s, %s]  %s' % (i, s['name'], state, _ago(max(0, now - s['activity'])),
+                                                _printable(s['title'])), width - 1), file=out)
+        for line in tmux_preview(tmux, s['name']):
+            print(_fit('       │ ' + line, width - 1), file=out)
+    while True:
+        answer = ask('Open a new session? [y/N]: ').strip().lower()
+        if answer in ('y', 'yes'):
+            return None
+        if answer in ('', 'n', 'no'):
+            break
+    if len(sessions) == 1:
+        return sessions[0]['name']
+    while True:
+        answer = ask('Session to open [1-%d] (default 1): ' % len(sessions)).strip() or '1'
+        if answer.isdigit() and 1 <= int(answer) <= len(sessions):
+            return sessions[int(answer) - 1]['name']
+
+
+def tmux_open(tmux, cwd, owner, command, ask=input, out=sys.stdout):
+    """Return the name of a reused or newly created session for cwd and owner."""
+    sessions, names = tmux_sessions(tmux, cwd, owner)
+    if sessions:
+        try:
+            chosen = choose_tmux_session(tmux, sessions, ask, out)
+        except EOFError:
+            raise SafeError('session selection cancelled') from None
+        if chosen is not None:
+            return chosen
+    base = tmux_base_name(cwd)
+    name, n = base, 2
+    while name in names:
+        name, n = base + '-' + str(n), n + 1
+    size = shutil.get_terminal_size()
+    created = _tmux(tmux, 'new-session', '-d', '-s', name, '-c', str(cwd),
+                    '-x', str(size.columns), '-y', str(size.lines),
+                    '--', 'sh', '-c', TMUX_PAUSE, 'ccprofile', *command)
+    if created.returncode:
+        raise SafeError('could not create a tmux session')
+    for key, value in (('@ccprofile_cwd', str(cwd)), ('@ccprofile_owner', owner)):
+        _tmux(tmux, 'set-option', '-t', '=' + name + ':', key, value)
+    return name
+
+
+def run_program(program, args):
+    # Unlike run, the environment is passed unchanged; this only manages the session.
+    path = shutil.which(program) if program and not program.startswith('-') else None
+    if path is None:
+        raise SafeError('program was not found in PATH')
+    path = os.path.abspath(path)
+    if tmux_wanted(os.environ):
+        tmux = shutil.which('tmux')
+        session = tmux_open(tmux, Path.cwd(), 'command:' + os.path.basename(path), [path, *args])
+        os.execv(tmux, [tmux, 'attach-session', '-t', '=' + session])
+    os.execv(path, [path, *args])
+    return 0
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         # argparse messages can contain supplied values. Do not quote them.
@@ -512,6 +654,10 @@ def parser():
                          help='remove the context window override')
     run = commands.add_parser('run', help='run NAME [-- CLAUDE_ARGS...]')
     run.add_argument('name')
+    run.add_argument('--no-tmux', action='store_true',
+                     help='run in the current terminal instead of a tmux session')
+    tmux = commands.add_parser('tmux', help='tmux PROGRAM [-- ARGS...]: run any program in a folder tmux session')
+    tmux.add_argument('program')
     doctor = commands.add_parser('doctor', help='check local configuration without sending API requests')
     doctor.add_argument('name', nargs='?')
     return p
@@ -597,10 +743,12 @@ def diagnostic(store, name):
 def main(argv=None, store=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     forwarded = []
-    if argv and argv[0] == 'run' and '--' in argv:
+    if argv and argv[0] in ('run', 'tmux') and '--' in argv:
         split = argv.index('--')
         forwarded, argv = argv[split + 1:], argv[:split]
     args = parser().parse_args(argv)
+    if args.command == 'tmux':
+        return run_program(args.program, forwarded)
     store = store or Store()
     if args.command == 'doctor':
         return diagnostic(store, args.name)
@@ -680,6 +828,13 @@ def main(argv=None, store=None):
     if args.command == 'run':
         if p['type'] == 'api' and any(a == '--model' or a.startswith('--model=') for a in forwarded):
             raise SafeError('--model conflicts with the API profile; use ccprofile edit NAME --model MODEL')
+        if not args.no_tmux and tmux_wanted(os.environ):
+            # The inner run repeats every check and reads the token inside the session.
+            tmux = shutil.which('tmux')
+            command = [sys.executable, os.path.abspath(sys.argv[0]), 'run', '--no-tmux', args.name,
+                       '--', *forwarded]
+            session = tmux_open(tmux, Path.cwd(), args.name, command)
+            os.execv(tmux, [tmux, 'attach-session', '-t', '=' + session])
         token = read_token(os.environ) if p['type'] == 'api' else None
         child_args, child_env = build_launch(p, directory, forwarded, os.environ, token)
     else:

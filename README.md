@@ -135,7 +135,45 @@ If your services need different tokens, [supply a token for each invocation](doc
 ccprofile itself does not store tokens or access Keychain.
 You do not need an API token for a `claude` profile.
 
-## 4. Common commands
+## 4. Sessions in tmux
+
+When you start `ccprofile run` from a terminal outside tmux and tmux is installed, Claude Code runs in a tmux session named after the current folder.
+For example, a run in `~/src/my.app` creates the session `my_app`.
+Detach with `Ctrl-b d`; Claude Code keeps running.
+
+When you run the same profile in the same folder again, ccprofile lists the existing sessions with each one's title, last activity, and last few lines of output.
+Press Enter to reopen the most recent session, or answer `y` to start another one (`my_app-2`, and so on).
+If there are several sessions, choose one by number.
+
+```text
+Existing sessions for this folder:
+  1) my_app  [detached, 5m ago]  ✳ Fix login tests
+       │ ● Running tests...
+  2) my_app-2  [detached, 2h ago]  ✳ Update README
+       │ Done. README updated.
+Open a new session? [y/N]:
+Session to open [1-2] (default 1):
+```
+
+Sessions are matched by folder and profile, so `run work` never reopens a `personal` session.
+Add `--no-tmux` (`ccprofile run --no-tmux work`) to run in the current terminal.
+ccprofile does not use tmux when tmux is missing, when you are already inside tmux, or when input or output is not a terminal.
+
+A new session receives the tmux server's environment, not your current shell's.
+If `CCPROFILE_TOKEN` is not set in that environment, the session prompts for the token.
+
+Use `ccprofile tmux` to run any other program the same way:
+
+```sh
+alias codexy='ccprofile tmux codex -- --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust'
+alias agyd='ccprofile tmux agy -- --dangerously-skip-permissions'
+```
+
+Sessions are matched by folder and program name.
+Unlike `run`, `ccprofile tmux` passes the environment through unchanged and does not read profiles.
+Arguments after `--` apply only when ccprofile creates a session; reopening a session attaches to the running program.
+
+## 5. Common commands
 
 | Task | Command |
 |---|---|
